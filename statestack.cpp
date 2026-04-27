@@ -1,0 +1,103 @@
+// ============================================
+// Name: Jiri Uhlir
+// Student ID: D00260335
+// ============================================
+
+#include "statestack.hpp"
+
+StateStack::PendingChange::PendingChange(StackActions action, StateID state_id) : action(action), state_id(state_id)
+{
+}
+
+StateStack::StateStack(State::Context context) : m_context(context)
+{
+}
+
+void StateStack::Update(sf::Time dt)
+{
+	for (auto itr = m_stack.rbegin(); itr != m_stack.rend(); ++itr)
+	{
+		if (!(*itr)->Update(dt))
+		{
+			break;
+		}
+	}
+	ApplyPendingChanges();
+}
+
+void StateStack::Draw(sf::RenderTarget& target)
+{
+	for (State::Ptr& state : m_stack)
+	{
+		state->Draw(target);
+	}
+
+}
+
+void StateStack::OnResize(sf::Vector2u new_size)
+{
+	for (State::Ptr& state : m_stack)
+	{
+		state->OnResize(new_size);
+	}
+}
+
+void StateStack::HandleEvent(const sf::Event& event)
+{
+	for (auto itr = m_stack.rbegin(); itr != m_stack.rend(); ++itr)
+	{
+		if (!(*itr)->HandleEvent(event))
+		{
+			break;
+		}
+	}
+	ApplyPendingChanges();
+}
+
+void StateStack::PushState(StateID state_id)
+{
+	m_pending_list.emplace_back(PendingChange(StackActions::kPush, state_id));
+}
+
+void StateStack::PopState()
+{
+	m_pending_list.emplace_back(PendingChange(StackActions::kPop));
+}
+
+void StateStack::ClearStack()
+{
+	m_pending_list.emplace_back(PendingChange(StackActions::kClear));
+}
+
+void StateStack::ApplyPendingChanges()
+{
+	for (PendingChange change : m_pending_list)
+	{
+		switch (change.action)
+		{
+		case StackActions::kPush:
+			m_stack.emplace_back(CreateState(change.state_id));
+			break;
+		case StackActions::kPop:
+			if (!m_stack.empty())
+				m_stack.pop_back();
+			break;
+		case StackActions::kClear:
+			m_stack.clear();
+			break;
+		}
+	}
+	m_pending_list.clear();
+}
+
+bool StateStack::IsEmpty() const
+{
+	return m_stack.empty();
+}
+
+State::Ptr StateStack::CreateState(StateID state_id)
+{
+	auto found = m_state_factory.find(state_id);
+	assert(found != m_state_factory.end());
+	return found->second();
+}

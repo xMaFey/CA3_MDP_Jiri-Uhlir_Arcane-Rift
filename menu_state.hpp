@@ -1,0 +1,32 @@
+// ============================================
+// Name: Jiri Uhlir
+// Student ID: D00260335
+// ============================================
+
+#pragma once
+#include "state.hpp"
+#include <SFML/Graphics/Sprite.hpp>
+#include "container.hpp"
+#include "button.hpp"
+
+class MenuState : public State
+{
+public:
+	MenuState(StateStack& stack, Context context);
+	virtual void Draw(sf::RenderTarget& target) override;
+	virtual bool Update(sf::Time dt) override;
+	virtual bool HandleEvent(const sf::Event& event) override;
+	void UpdateOptionText();
+	void OnResize(sf::Vector2u new_size) override;
+	void rebuild_layout(sf::Vector2u new_size);
+
+private:
+	sf::Sprite m_background_sprite;
+	gui::Container m_gui_container;
+
+	gui::Button::Ptr m_host_button;
+	gui::Button::Ptr m_join_button;
+	gui::Button::Ptr m_settings_button;
+	gui::Button::Ptr m_exit_button;
+};
+
