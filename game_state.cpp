@@ -1132,11 +1132,11 @@ bool GameState::Update(sf::Time dt)
     }
     else if (settings.network_role == GameSettings::NetworkRole::Client)
     {
-        if (m_client_session &&
-            localPlayer &&
-            localPlayer->connected &&
-            is_combat_team(localPlayer->team))
+        if (m_client_session && localPlayer && localPlayer->connected)
         {
+            // Send input every frame, even as spectator.
+            // For spectators this is just an empty input packet, but it works
+            // as a UDP heartbeat so the host does not time out the client.
             m_client_session->send_local_input(clientInput);
         }
     }

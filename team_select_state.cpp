@@ -11,6 +11,7 @@
 #include <SFML/Network/IpAddress.hpp>
 #include <iostream>
 #include "profile_data.hpp"
+#include "player_input.hpp"
 
 TeamSelectState::TeamSelectState(StateStack& stack, Context context)
     : State(stack, context)
@@ -653,6 +654,16 @@ bool TeamSelectState::Update(sf::Time)
     }
     else if (settings.network_role == GameSettings::NetworkRole::Client && m_client_session)
     {
+        // UDP has no real connection, so the host only knows a client is alive
+        // when it receives packets from that client.
+        // Send an empty input packet every lobby update as a heartbeat so players
+        // do not get timed out while waiting in the lobby or spectating.
+        if (m_network_started)
+        {
+            PlayerInput heartbeatInput;
+            m_client_session->send_local_input(heartbeatInput);
+        }
+
         if (m_network_started && !m_join_sent)
         {
             JoinInfoPacket joinInfo;

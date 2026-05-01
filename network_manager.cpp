@@ -6,10 +6,13 @@
 #include "network_manager.hpp"
 #include <algorithm>
 #include <iostream>
+#include <cstdint>
 
 namespace
 {
-    // serializing join packet
+    constexpr int kMaxRemoteClients = 14; // host is player 0, so 14 remotes = 15 players total
+    constexpr float kClientTimeoutSeconds = 10.f;
+
     sf::Packet& operator<<(sf::Packet& packet, const JoinInfoPacket& joinInfo)
     {
         return packet << joinInfo.player_id << joinInfo.nickname << joinInfo.team;
@@ -20,7 +23,6 @@ namespace
         return packet >> joinInfo.player_id >> joinInfo.nickname >> joinInfo.team;
     }
 
-    // serializing team change request packet
     sf::Packet& operator<<(sf::Packet& packet, const TeamChangeRequestPacket& request)
     {
         return packet << request.requested_team;
@@ -31,26 +33,16 @@ namespace
         return packet >> request.requested_team;
     }
 
-    // serializing lobby player state
     sf::Packet& operator<<(sf::Packet& packet, const LobbyPlayerState& p)
     {
-        return packet
-            << p.id
-            << p.nickname
-            << p.team
-            << p.connected;
+        return packet << p.id << p.nickname << p.team << p.connected;
     }
 
     sf::Packet& operator>>(sf::Packet& packet, LobbyPlayerState& p)
     {
-        return packet
-            >> p.id
-            >> p.nickname
-            >> p.team
-            >> p.connected;
+        return packet >> p.id >> p.nickname >> p.team >> p.connected;
     }
 
-    // serializing lobby state
     sf::Packet& operator<<(sf::Packet& packet, const LobbyStatePacket& state)
     {
         packet
@@ -86,7 +78,6 @@ namespace
             >> playerCount;
 
         state.players.clear();
-        state.players.reserve(playerCount);
 
         for (uint32_t i = 0; i < playerCount; ++i)
         {
@@ -98,7 +89,6 @@ namespace
         return packet;
     }
 
-    // serializing player net state
     sf::Packet& operator<<(sf::Packet& packet, const PlayerNetState& p)
     {
         return packet
@@ -141,7 +131,6 @@ namespace
         return packet >> s.sound_id >> s.source_player_id;
     }
 
-    // serializing player input
     sf::Packet& operator<<(sf::Packet& packet, const PlayerInput& input)
     {
         return packet << input.move.x << input.move.y << input.shootHeld << input.dashPressed;
@@ -152,7 +141,6 @@ namespace
         return packet >> input.move.x >> input.move.y >> input.shootHeld >> input.dashPressed;
     }
 
-    // serializing bullet state
     sf::Packet& operator<<(sf::Packet& packet, const BulletState& b)
     {
         return packet
@@ -173,7 +161,6 @@ namespace
             >> b.spell;
     }
 
-    // serializing world state
     sf::Packet& operator<<(sf::Packet& packet, const WorldStatePacket& state)
     {
         packet
@@ -193,7 +180,6 @@ namespace
         for (const auto& b : state.bullets)
             packet << b;
 
-        // send sound events too
         packet << static_cast<uint32_t>(state.sound_events.size());
 
         for (const auto& s : state.sound_events)
@@ -205,7 +191,9 @@ namespace
     sf::Packet& operator>>(sf::Packet& packet, WorldStatePacket& state)
     {
         uint32_t playerCount = 0;
-        packet >> state.your_player_id
+
+        packet
+            >> state.your_player_id
             >> playerCount
             >> state.fire_count
             >> state.water_count
@@ -214,7 +202,6 @@ namespace
             >> state.water_kills;
 
         state.players.clear();
-        state.players.reserve(playerCount);
 
         for (uint32_t i = 0; i < playerCount; ++i)
         {
@@ -227,7 +214,6 @@ namespace
         packet >> bulletCount;
 
         state.bullets.clear();
-        state.bullets.reserve(bulletCount);
 
         for (uint32_t i = 0; i < bulletCount; ++i)
         {
@@ -236,12 +222,10 @@ namespace
             state.bullets.push_back(b);
         }
 
-        // receive sound events too
         uint32_t soundCount = 0;
         packet >> soundCount;
 
         state.sound_events.clear();
-        state.sound_events.reserve(soundCount);
 
         for (uint32_t i = 0; i < soundCount; ++i)
         {
@@ -253,7 +237,6 @@ namespace
         return packet;
     }
 
-    // packet type helpers
     sf::Packet make_typed_packet(PacketType type)
     {
         sf::Packet packet;
@@ -264,6 +247,7 @@ namespace
     std::optional<PacketType> read_packet_type(sf::Packet& packet)
     {
         int typeValue = 0;
+
         if (!(packet >> typeValue))
             return std::nullopt;
 
@@ -278,11 +262,18 @@ bool NetworkManager::start_host(unsigned short port)
     m_mode = Mode::Host;
     m_next_player_id = 1;
 
-    m_listener.setBlocking(false);
-    if (m_listener.listen(port) != sf::Socket::Status::Done)
+    // UDP host binds to a known port so clients know where to send packets.
+    if (m_socket.bind(port) != sf::Socket::Status::Done)
+    {
+        m_connected = false;
+        m_mode = Mode::None;
         return false;
+    }
 
-    m_connected = true; // host is active even before clients join
+    m_socket.setBlocking(false);
+    m_connected = true;
+
+    std::cout << "UDP host started on port " << port << "\n";
     return true;
 }
 
@@ -291,38 +282,36 @@ bool NetworkManager::start_client(const sf::IpAddress& ip, unsigned short port)
     disconnect();
 
     m_mode = Mode::Client;
+    m_server_ip = ip;
+    m_server_port = port;
 
-    m_client_socket.setBlocking(true);
-
-    if (m_client_socket.connect(ip, port, sf::seconds(2.f)) != sf::Socket::Status::Done)
+    // UDP has no real connection step.
+    // The client binds to any free local port and then sends packets to the host.
+    if (m_socket.bind(sf::Socket::AnyPort) != sf::Socket::Status::Done)
     {
         m_connected = false;
+        m_mode = Mode::None;
         return false;
     }
 
+    m_socket.setBlocking(false);
     m_connected = true;
-    m_client_socket.setBlocking(false);
+
+    std::cout << "UDP client ready. Server is " << ip << ":" << port << "\n";
     return true;
 }
 
 void NetworkManager::disconnect()
 {
-    m_listener.close();
-
-    for (auto& client : m_host_clients)
-    {
-        if (client.socket)
-            client.socket->disconnect();
-    }
+    m_socket.unbind();
 
     m_host_clients.clear();
-
-    m_client_socket.disconnect();
+    m_disconnected_player_ids.clear();
 
     m_connected = false;
     m_mode = Mode::None;
     m_next_player_id = 1;
-    m_disconnected_player_ids.clear();
+    m_server_port = 0;
 }
 
 bool NetworkManager::is_connected() const
@@ -335,117 +324,180 @@ NetworkManager::Mode NetworkManager::mode() const
     return m_mode;
 }
 
-std::vector<int> NetworkManager::consume_disconnected_player_ids()
+NetworkManager::HostClient* NetworkManager::find_client(const sf::IpAddress& ip, unsigned short port)
 {
-    std::vector<int> out = std::move(m_disconnected_player_ids);
-    m_disconnected_player_ids.clear();
-    return out;
+    for (auto& client : m_host_clients)
+    {
+        if (client.ip == ip && client.port == port)
+            return &client;
+    }
+
+    return nullptr;
 }
 
-void NetworkManager::accept_new_clients()
+NetworkManager::HostClient* NetworkManager::find_client_by_id(int player_id)
+{
+    for (auto& client : m_host_clients)
+    {
+        if (client.player_id == player_id)
+            return &client;
+    }
+
+    return nullptr;
+}
+
+void NetworkManager::poll_udp_packets()
 {
     if (m_mode != Mode::Host)
         return;
 
     while (true)
     {
-        auto socket = std::make_unique<sf::TcpSocket>();
-        socket->setBlocking(false);
+        sf::Packet packet;
+        std::optional<sf::IpAddress> sender;
+        unsigned short senderPort = 0;
 
-        const auto status = m_listener.accept(*socket);
+        const auto status = m_socket.receive(packet, sender, senderPort);
+
+        // No UDP packet waiting right now.
         if (status != sf::Socket::Status::Done)
             break;
 
-        HostClient client;
-        client.socket = std::move(socket);
-        client.player_id = -1;
-
-        m_host_clients.push_back(std::move(client));
-    }
-}
-
-void NetworkManager::poll_host_client_packets()
-{
-    if (m_mode != Mode::Host)
-        return;
-
-    accept_new_clients();
-
-    for (auto& client : m_host_clients)
-    {
-        if (!client.socket)
+        // Safety check: SFML 3 stores sender IP as optional.
+        if (!sender.has_value())
             continue;
 
-        while (true)
+        const auto type = read_packet_type(packet);
+
+        if (!type.has_value())
+            continue;
+
+        HostClient* client = find_client(*sender, senderPort);
+
+        // JoinInfo is the only packet allowed to create a new client.
+        if (*type == PacketType::JoinInfo)
         {
-            sf::Packet packet;
-
-            const auto status = client.socket->receive(packet);
-
-            if (status == sf::Socket::Status::Disconnected)
+            if (!client)
             {
-                if (client.player_id >= 0)
-                    m_disconnected_player_ids.push_back(client.player_id);
+                if (static_cast<int>(m_host_clients.size()) >= kMaxRemoteClients)
+                {
+                    std::cout << "UDP join rejected: server full\n";
+                    continue;
+                }
 
-                client.socket->disconnect();
-                client.socket.reset();
-                break;
+                HostClient newClient;
+                newClient.ip = *sender;
+                newClient.port = senderPort;
+                newClient.player_id = m_next_player_id++;
+                newClient.last_heard = m_clock.getElapsedTime();
+
+                m_host_clients.push_back(newClient);
+                client = &m_host_clients.back();
+
+                std::cout << "UDP client joined from " << *sender
+                    << ":" << senderPort
+                    << " as id=" << client->player_id << "\n";
             }
 
-            if (status != sf::Socket::Status::Done)
-                break;
+            JoinInfoPacket joinInfo;
+            packet >> joinInfo;
 
-            const auto type = read_packet_type(packet);
-            if (!type.has_value())
+            joinInfo.player_id = client->player_id;
+            client->pending_join_info = joinInfo;
+            client->last_heard = m_clock.getElapsedTime();
+        }
+        else
+        {
+            // Ignore non-join packets from unknown UDP endpoints.
+            if (!client)
                 continue;
 
-            if (*type == PacketType::JoinInfo)
-            {
-                JoinInfoPacket joinInfo;
-                packet >> joinInfo;
+            client->last_heard = m_clock.getElapsedTime();
 
-                if (client.player_id < 0)
-                    client.player_id = m_next_player_id++;
-
-                joinInfo.player_id = client.player_id;
-                client.pending_join_info = joinInfo;
-            }
-            else if (*type == PacketType::PlayerInput)
+            if (*type == PacketType::PlayerInput)
             {
                 PlayerInput input;
                 packet >> input;
-                client.pending_input = input;
+                client->pending_input = input;
             }
             else if (*type == PacketType::TeamChangeRequest)
             {
                 TeamChangeRequestPacket request;
                 packet >> request;
-                client.pending_team_change_request = request;
+                client->pending_team_change_request = request;
             }
         }
     }
+
+    // UDP does not tell us when someone disconnects.
+    // So we treat a client as disconnected if we hear nothing for a while.
+    const sf::Time now = m_clock.getElapsedTime();
 
     m_host_clients.erase(
         std::remove_if(
             m_host_clients.begin(),
             m_host_clients.end(),
-            [](const HostClient& client)
+            [&](const HostClient& client)
             {
-                return !client.socket;
+                const bool timedOut =
+                    (now - client.last_heard).asSeconds() > kClientTimeoutSeconds;
+
+                if (timedOut)
+                {
+                    m_disconnected_player_ids.push_back(client.player_id);
+
+                    std::cout << "UDP client timed out: id="
+                        << client.player_id << "\n";
+                }
+
+                return timedOut;
             }),
         m_host_clients.end()
     );
 }
 
-bool NetworkManager::send_join_info(const JoinInfoPacket& joinInfo)
+bool NetworkManager::send_packet_to_client(int player_id, sf::Packet& packet)
+{
+    if (m_mode != Mode::Host || !m_connected)
+        return false;
+
+    HostClient* client = find_client_by_id(player_id);
+
+    if (!client)
+        return false;
+
+    if (!client->ip.has_value())
+        return false;
+
+    return m_socket.send(packet, *client->ip, client->port) == sf::Socket::Status::Done;
+}
+
+bool NetworkManager::send_packet_to_server(sf::Packet& packet)
 {
     if (m_mode != Mode::Client || !m_connected)
         return false;
 
+    if (!m_server_ip.has_value())
+        return false;
+
+    return m_socket.send(packet, *m_server_ip, m_server_port) == sf::Socket::Status::Done;
+}
+
+std::vector<int> NetworkManager::consume_disconnected_player_ids()
+{
+    poll_udp_packets();
+
+    std::vector<int> out = std::move(m_disconnected_player_ids);
+    m_disconnected_player_ids.clear();
+    return out;
+}
+
+bool NetworkManager::send_join_info(const JoinInfoPacket& joinInfo)
+{
     sf::Packet packet = make_typed_packet(PacketType::JoinInfo);
     packet << joinInfo;
 
-    return m_client_socket.send(packet) == sf::Socket::Status::Done;
+    return send_packet_to_server(packet);
 }
 
 std::optional<JoinInfoPacket> NetworkManager::receive_join_info()
@@ -453,7 +505,7 @@ std::optional<JoinInfoPacket> NetworkManager::receive_join_info()
     if (m_mode != Mode::Host)
         return std::nullopt;
 
-    poll_host_client_packets();
+    poll_udp_packets();
 
     for (auto& client : m_host_clients)
     {
@@ -470,24 +522,10 @@ std::optional<JoinInfoPacket> NetworkManager::receive_join_info()
 
 bool NetworkManager::send_input(const PlayerInput& input)
 {
-    if (m_mode != Mode::Client || !m_connected)
-        return false;
-
     sf::Packet packet = make_typed_packet(PacketType::PlayerInput);
     packet << input;
 
-    return m_client_socket.send(packet) == sf::Socket::Status::Done;
-}
-
-bool NetworkManager::send_team_change_request(const TeamChangeRequestPacket& request)
-{
-    if (m_mode != Mode::Client || !m_connected)
-        return false;
-
-    sf::Packet packet = make_typed_packet(PacketType::TeamChangeRequest);
-    packet << request;
-
-    return m_client_socket.send(packet) == sf::Socket::Status::Done;
+    return send_packet_to_server(packet);
 }
 
 std::optional<std::pair<int, PlayerInput>> NetworkManager::receive_input()
@@ -495,19 +533,28 @@ std::optional<std::pair<int, PlayerInput>> NetworkManager::receive_input()
     if (m_mode != Mode::Host)
         return std::nullopt;
 
-    poll_host_client_packets();
+    poll_udp_packets();
 
     for (auto& client : m_host_clients)
     {
-        if (client.player_id < 0 || !client.pending_input.has_value())
+        if (!client.pending_input.has_value())
             continue;
 
         PlayerInput input = *client.pending_input;
         client.pending_input.reset();
+
         return std::make_pair(client.player_id, input);
     }
 
     return std::nullopt;
+}
+
+bool NetworkManager::send_team_change_request(const TeamChangeRequestPacket& request)
+{
+    sf::Packet packet = make_typed_packet(PacketType::TeamChangeRequest);
+    packet << request;
+
+    return send_packet_to_server(packet);
 }
 
 std::optional<std::pair<int, TeamChangeRequestPacket>> NetworkManager::receive_team_change_request()
@@ -515,135 +562,47 @@ std::optional<std::pair<int, TeamChangeRequestPacket>> NetworkManager::receive_t
     if (m_mode != Mode::Host)
         return std::nullopt;
 
-    poll_host_client_packets();
+    poll_udp_packets();
 
     for (auto& client : m_host_clients)
     {
-        if (client.player_id < 0 || !client.pending_team_change_request.has_value())
+        if (!client.pending_team_change_request.has_value())
             continue;
 
         TeamChangeRequestPacket request = *client.pending_team_change_request;
         client.pending_team_change_request.reset();
+
         return std::make_pair(client.player_id, request);
     }
 
     return std::nullopt;
 }
 
-bool NetworkManager::send_lobby_state_to_player(int player_id, const LobbyStatePacket& state)
-{
-    if (m_mode == Mode::Client || !m_connected)
-        return false;
-
-    accept_new_clients();
-
-    for (auto& client : m_host_clients)
-    {
-        if (!client.socket)
-            continue;
-
-        if (client.player_id != player_id)
-            continue;
-
-        sf::Packet packet = make_typed_packet(PacketType::LobbyState);
-        packet << state;
-
-        return client.socket->send(packet) == sf::Socket::Status::Done;
-    }
-
-    return false;
-}
-
-bool NetworkManager::send_lobby_state_to_all(const LobbyStatePacket& state)
-{
-    if (m_mode == Mode::Client || !m_connected)
-        return false;
-
-    accept_new_clients();
-
-    bool sentAny = false;
-
-    for (auto& client : m_host_clients)
-    {
-        if (!client.socket)
-            continue;
-
-        sf::Packet packet = make_typed_packet(PacketType::LobbyState);
-        packet << state;
-
-        if (client.socket->send(packet) == sf::Socket::Status::Done)
-            sentAny = true;
-    }
-
-    return sentAny;
-}
-
-std::optional<LobbyStatePacket> NetworkManager::receive_lobby_state()
-{
-    if (m_mode != Mode::Client || !m_connected)
-        return std::nullopt;
-
-    sf::Packet packet;
-    const auto status = m_client_socket.receive(packet);
-
-    if (status != sf::Socket::Status::Done)
-        return std::nullopt;
-
-    const auto type = read_packet_type(packet);
-    if (!type.has_value() || *type != PacketType::LobbyState)
-        return std::nullopt;
-
-    LobbyStatePacket state;
-    packet >> state;
-    return state;
-}
-
 bool NetworkManager::send_world_state_to_player(int player_id, const WorldStatePacket& state)
 {
-    if (m_mode == Mode::Client || !m_connected)
-        return false;
+    sf::Packet packet = make_typed_packet(PacketType::WorldState);
+    packet << state;
 
-    accept_new_clients();
+    // Useful for CA3 screencast bandwidth discussion.
+    // std::cout << "[UDP] WorldState size: " << packet.getDataSize() << " bytes\n";
 
-    for (auto& client : m_host_clients)
-    {
-        if (!client.socket)
-            continue;
-
-        if (client.player_id != player_id)
-            continue;
-
-        sf::Packet packet = make_typed_packet(PacketType::WorldState);
-        packet << state;
-
-        //// DEBUG: print the real serialized packet size in bytes.
-        //std::cout << "[SERVER] WorldState packet to player " << player_id
-        //    << ": " << packet.getDataSize() << " bytes\n";
-
-        return client.socket->send(packet) == sf::Socket::Status::Done;
-    }
-
-    return false;
+    return send_packet_to_client(player_id, packet);
 }
 
 bool NetworkManager::send_world_state_to_all(const WorldStatePacket& state)
 {
-    if (m_mode == Mode::Client || !m_connected)
+    if (m_mode != Mode::Host || !m_connected)
         return false;
-
-    accept_new_clients();
 
     bool sentAny = false;
 
-    for (auto& client : m_host_clients)
+    for (const auto& client : m_host_clients)
     {
-        if (!client.socket)
-            continue;
-
         sf::Packet packet = make_typed_packet(PacketType::WorldState);
         packet << state;
 
-        if (client.socket->send(packet) == sf::Socket::Status::Done)
+        if (client.ip.has_value() &&
+            m_socket.send(packet, *client.ip, client.port) == sf::Socket::Status::Done)
             sentAny = true;
     }
 
@@ -655,17 +614,95 @@ std::optional<WorldStatePacket> NetworkManager::receive_world_state()
     if (m_mode != Mode::Client || !m_connected)
         return std::nullopt;
 
-    sf::Packet packet;
-    const auto status = m_client_socket.receive(packet);
+    while (true)
+    {
+        sf::Packet packet;
+        std::optional<sf::IpAddress> sender;
+        unsigned short senderPort = 0;
 
-    if (status != sf::Socket::Status::Done)
+        const auto status = m_socket.receive(packet, sender, senderPort);
+
+        // No world state packet available this frame.
+        if (status != sf::Socket::Status::Done)
+            return std::nullopt;
+
+        // Safety check for SFML 3 optional sender IP.
+        if (!sender.has_value())
+            continue;
+
+        const auto type = read_packet_type(packet);
+
+        if (!type.has_value())
+            continue;
+
+        if (*type != PacketType::WorldState)
+            continue;
+
+        WorldStatePacket state;
+        packet >> state;
+        return state;
+    }
+}
+
+bool NetworkManager::send_lobby_state_to_player(int player_id, const LobbyStatePacket& state)
+{
+    sf::Packet packet = make_typed_packet(PacketType::LobbyState);
+    packet << state;
+
+    return send_packet_to_client(player_id, packet);
+}
+
+bool NetworkManager::send_lobby_state_to_all(const LobbyStatePacket& state)
+{
+    if (m_mode != Mode::Host || !m_connected)
+        return false;
+
+    bool sentAny = false;
+
+    for (const auto& client : m_host_clients)
+    {
+        sf::Packet packet = make_typed_packet(PacketType::LobbyState);
+        packet << state;
+
+        if (client.ip.has_value() &&
+            m_socket.send(packet, *client.ip, client.port) == sf::Socket::Status::Done)
+            sentAny = true;
+    }
+
+    return sentAny;
+}
+
+std::optional<LobbyStatePacket> NetworkManager::receive_lobby_state()
+{
+    if (m_mode != Mode::Client || !m_connected)
         return std::nullopt;
 
-    const auto type = read_packet_type(packet);
-    if (!type.has_value() || *type != PacketType::WorldState)
-        return std::nullopt;
+    while (true)
+    {
+        sf::Packet packet;
+        std::optional<sf::IpAddress> sender;
+        unsigned short senderPort = 0;
 
-    WorldStatePacket state;
-    packet >> state;
-    return state;
+        const auto status = m_socket.receive(packet, sender, senderPort);
+
+        // No world state packet available this frame.
+        if (status != sf::Socket::Status::Done)
+            return std::nullopt;
+
+        // Safety check for SFML 3 optional sender IP.
+        if (!sender.has_value())
+            continue;
+
+        const auto type = read_packet_type(packet);
+
+        if (!type.has_value())
+            continue;
+
+        if (*type != PacketType::LobbyState)
+            continue;
+
+        LobbyStatePacket state;
+        packet >> state;
+        return state;
+    }
 }
