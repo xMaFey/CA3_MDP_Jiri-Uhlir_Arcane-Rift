@@ -118,6 +118,9 @@ struct WorldStatePacket
     int fire_kills = 0;
     int water_kills = 0;
 
+    bool match_over = false;
+    int winner_team = static_cast<int>(NetTeam::Spectator);
+
     std::vector<BulletState> bullets;
 
     // sound events that happened this host frame

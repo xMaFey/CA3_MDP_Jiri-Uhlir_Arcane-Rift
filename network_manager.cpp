@@ -170,7 +170,9 @@ namespace
             << state.water_count
             << state.spectator_count
             << state.fire_kills
-            << state.water_kills;
+            << state.water_kills
+            << state.match_over
+            << state.winner_team;
 
         for (const auto& p : state.players)
             packet << p;
@@ -199,7 +201,9 @@ namespace
             >> state.water_count
             >> state.spectator_count
             >> state.fire_kills
-            >> state.water_kills;
+            >> state.water_kills
+            >> state.match_over
+            >> state.winner_team;
 
         state.players.clear();
 

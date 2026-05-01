@@ -120,7 +120,7 @@ private:
 
     int m_fire_kills = 0;
     int m_water_kills = 0;
-    const int m_kills_to_win = 50;
+    const int m_kills_to_win = 3;
 
     std::unique_ptr<HostSession> m_host_session;
     std::unique_ptr<ClientSession> m_client_session;
@@ -149,4 +149,7 @@ private:
 
     // Prevent saving the same finished match multiple times.
     bool m_match_stats_committed = false;
+
+    bool m_match_over_started = false;
+    sf::Time m_match_over_timer = sf::Time::Zero;
 };

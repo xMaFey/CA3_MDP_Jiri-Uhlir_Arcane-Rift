@@ -73,6 +73,14 @@ GameOverState::GameOverState(StateStack& stack, Context context)
     m_play_again_button = std::make_shared<gui::Button>(*context.fonts, *context.textures);
     m_play_again_button->SetText("Play Again (Enter)");
     m_play_again_button->setPosition({ view_size.x / 2.f - 100.f, view_size.y * 0.52f });
+
+    // Disable Play Again in multiplayer (UDP session cannot safely restart yet)
+    if (context.settings->network_role != GameSettings::NetworkRole::None)
+    {
+        m_play_again_button->SetText("Play Again (Disabled)");
+        m_play_again_button->SetEnabled(false);
+    }
+
     m_play_again_button->SetCallback([this]()
         {
             GetContext().sounds->Play(SoundID::kButton);
@@ -88,9 +96,13 @@ GameOverState::GameOverState(StateStack& stack, Context context)
     m_back_to_menu_button->SetCallback([this]()
         {
             GetContext().sounds->Play(SoundID::kButton);
+
+            if (GetContext().network)
+                GetContext().network->disconnect();
+
             RequestStackClear();
             RequestStackPush(StateID::kMenu);
-		});
+        });
 
     m_gui.Pack(m_play_again_button);
     m_gui.Pack(m_back_to_menu_button);
@@ -121,7 +133,8 @@ bool GameOverState::HandleEvent(const sf::Event& event)
     const auto* key = event.getIf<sf::Event::KeyPressed>();
     if (!key) return false;
 
-    if (key->scancode == sf::Keyboard::Scancode::Enter)
+    if (key->scancode == sf::Keyboard::Scancode::Enter &&
+        GetContext().settings->network_role == GameSettings::NetworkRole::None)
     {
         // Restart flow through team select.
         RequestStackClear();
@@ -131,7 +144,9 @@ bool GameOverState::HandleEvent(const sf::Event& event)
 
     if (key->scancode == sf::Keyboard::Scancode::Escape)
     {
-        // Back to menu
+        if (GetContext().network)
+            GetContext().network->disconnect();
+
         RequestStackClear();
         RequestStackPush(StateID::kMenu);
         return true;

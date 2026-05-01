@@ -1420,6 +1420,18 @@ bool GameState::Update(sf::Time dt)
             baseState.fire_kills = m_fire_kills;
             baseState.water_kills = m_water_kills;
 
+            const bool matchOver =
+                (m_fire_kills >= m_kills_to_win || m_water_kills >= m_kills_to_win);
+
+            baseState.match_over = matchOver;
+
+            if (m_fire_kills >= m_kills_to_win)
+                baseState.winner_team = static_cast<int>(NetTeam::Fire);
+            else if (m_water_kills >= m_kills_to_win)
+                baseState.winner_team = static_cast<int>(NetTeam::Water);
+            else
+                baseState.winner_team = static_cast<int>(NetTeam::Spectator);
+
             // counting connected players by team for UI
             for (const auto& p : m_players)
             {
@@ -1534,6 +1546,17 @@ bool GameState::Update(sf::Time dt)
 
                 m_fire_kills = m_latest_world_state->fire_kills;
                 m_water_kills = m_latest_world_state->water_kills;
+
+                if (m_latest_world_state->match_over)
+                {
+                    settings.last_winner_team = decode_team(m_latest_world_state->winner_team);
+
+                    finish_match_and_save();
+
+                    RequestStackClear();
+                    RequestStackPush(StateID::kGameOver);
+                    return false;
+                }
 
                 settings.latest_fire_count = m_latest_world_state->fire_count;
                 settings.latest_water_count = m_latest_world_state->water_count;
@@ -1777,8 +1800,25 @@ bool GameState::Update(sf::Time dt)
         else
             settings.last_winner_team = GameSettings::Team::Water;
 
-        // Save this match into the local persistent profile before leaving.
         finish_match_and_save();
+
+        // In UDP, one packet can be lost.
+        // Host waits briefly so it keeps sending match_over=true
+        // for multiple frames before leaving GameState.
+        if (settings.network_role == GameSettings::NetworkRole::Host)
+        {
+            m_match_over_started = true;
+            m_match_over_timer += dt;
+
+            if (m_match_over_timer >= sf::seconds(1.f))
+            {
+                RequestStackClear();
+                RequestStackPush(StateID::kGameOver);
+                return false;
+            }
+
+            return true;
+        }
 
         RequestStackClear();
         RequestStackPush(StateID::kGameOver);
@@ -1907,7 +1947,9 @@ GameState::~GameState()
     // Save local progress if the player leaves before normal match end.
     finish_match_and_save();
 
-    // When leaving the match, close host/client networking cleanly.
-    if (GetContext().network)
-        GetContext().network->disconnect();
+    // Do not disconnect here automatically.
+    // The host may need to keep the UDP socket alive long enough for clients
+    // to receive final match/game-over packets.
+    //if (GetContext().network)
+    //    GetContext().network->disconnect();
 }
