@@ -15,6 +15,7 @@
 #include "profile_data.hpp"
 #include <fstream>
 #include <iostream>
+#include "socket_util.hpp"
 
 Application::Application()
 	: m_window(sf::VideoMode({ 1600, 900 }), "Arcane Rift", sf::Style::Default)
@@ -28,6 +29,10 @@ Application::Application()
 	, m_scene_texture(m_window.getSize())
 	, m_scene_sprite(m_scene_texture.getTexture())
 {
+	// Start WinSock for the low-level RoboCat UDP socket system.
+	// This must happen before creating any UDPSocket.
+	SocketUtil::StaticInit();
+
 	m_window.setKeyRepeatEnabled(false);
 
 	// load server IP from file
@@ -100,6 +105,12 @@ Application::Application()
 
 	RegisterStates();
 	m_stack.PushState(StateID::kTitle);
+}
+
+Application::~Application()
+{
+	// Clean up WinSock when the game closes.
+	SocketUtil::CleanUp();
 }
 
 void Application::Run()

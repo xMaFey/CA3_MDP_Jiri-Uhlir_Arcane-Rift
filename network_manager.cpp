@@ -10,254 +10,283 @@
 
 namespace
 {
-    constexpr int kMaxRemoteClients = 14; // host is player 0, so 14 remotes = 15 players total
+    constexpr int kMaxRemoteClients = 14;
     constexpr float kClientTimeoutSeconds = 10.f;
+    constexpr int kMaxPacketSize = 1500;
 
-    sf::Packet& operator<<(sf::Packet& packet, const JoinInfoPacket& joinInfo)
+    // -----------------------------
+    // Small stream helpers
+    // -----------------------------
+
+    void write_vec2(OutputMemoryBitStream& out, sf::Vector2f v)
     {
-        return packet << joinInfo.player_id << joinInfo.nickname << joinInfo.team;
+        out.Write(v.x);
+        out.Write(v.y);
     }
 
-    sf::Packet& operator>>(sf::Packet& packet, JoinInfoPacket& joinInfo)
+    void read_vec2(InputMemoryBitStream& in, sf::Vector2f& v)
     {
-        return packet >> joinInfo.player_id >> joinInfo.nickname >> joinInfo.team;
+        in.Read(v.x);
+        in.Read(v.y);
     }
 
-    sf::Packet& operator<<(sf::Packet& packet, const TeamChangeRequestPacket& request)
+    void write_packet_type(OutputMemoryBitStream& out, PacketType type)
     {
-        return packet << request.requested_team;
+        out.Write(static_cast<uint32_t>(type));
     }
 
-    sf::Packet& operator>>(sf::Packet& packet, TeamChangeRequestPacket& request)
+    PacketType read_packet_type(InputMemoryBitStream& in)
     {
-        return packet >> request.requested_team;
+        uint32_t typeValue = 0;
+        in.Read(typeValue);
+        return static_cast<PacketType>(typeValue);
     }
 
-    sf::Packet& operator<<(sf::Packet& packet, const LobbyPlayerState& p)
+    // -----------------------------
+    // Individual packet serializers
+    // -----------------------------
+
+    void write_join_info(OutputMemoryBitStream& out, const JoinInfoPacket& p)
     {
-        return packet << p.id << p.nickname << p.team << p.connected;
+        out.Write(p.player_id);
+        out.Write(p.nickname);
+        out.Write(p.team);
     }
 
-    sf::Packet& operator>>(sf::Packet& packet, LobbyPlayerState& p)
+    void read_join_info(InputMemoryBitStream& in, JoinInfoPacket& p)
     {
-        return packet >> p.id >> p.nickname >> p.team >> p.connected;
+        in.Read(p.player_id);
+        in.Read(p.nickname);
+        in.Read(p.team);
     }
 
-    sf::Packet& operator<<(sf::Packet& packet, const LobbyStatePacket& state)
+    void write_player_input(OutputMemoryBitStream& out, const PlayerInput& input)
     {
-        packet
-            << state.your_player_id
-            << state.fire_count
-            << state.water_count
-            << state.spectator_count
-            << state.can_join_fire
-            << state.can_join_water
-            << state.can_spectate
-            << state.match_started
-            << static_cast<uint32_t>(state.players.size());
-
-        for (const auto& p : state.players)
-            packet << p;
-
-        return packet;
+        write_vec2(out, input.move);
+        out.Write(input.shootHeld);
+        out.Write(input.dashPressed);
     }
 
-    sf::Packet& operator>>(sf::Packet& packet, LobbyStatePacket& state)
+    void read_player_input(InputMemoryBitStream& in, PlayerInput& input)
+    {
+        read_vec2(in, input.move);
+        in.Read(input.shootHeld);
+        in.Read(input.dashPressed);
+    }
+
+    void write_team_change_request(OutputMemoryBitStream& out, const TeamChangeRequestPacket& p)
+    {
+        out.Write(p.requested_team);
+    }
+
+    void read_team_change_request(InputMemoryBitStream& in, TeamChangeRequestPacket& p)
+    {
+        in.Read(p.requested_team);
+    }
+
+    void write_lobby_player(OutputMemoryBitStream& out, const LobbyPlayerState& p)
+    {
+        out.Write(p.id);
+        out.Write(p.nickname);
+        out.Write(p.team);
+        out.Write(p.connected);
+    }
+
+    void read_lobby_player(InputMemoryBitStream& in, LobbyPlayerState& p)
+    {
+        in.Read(p.id);
+        in.Read(p.nickname);
+        in.Read(p.team);
+        in.Read(p.connected);
+    }
+
+    void write_lobby_state(OutputMemoryBitStream& out, const LobbyStatePacket& state)
+    {
+        out.Write(state.your_player_id);
+        out.Write(state.fire_count);
+        out.Write(state.water_count);
+        out.Write(state.spectator_count);
+        out.Write(state.can_join_fire);
+        out.Write(state.can_join_water);
+        out.Write(state.can_spectate);
+        out.Write(state.match_started);
+
+        const uint32_t playerCount = static_cast<uint32_t>(state.players.size());
+        out.Write(playerCount);
+
+        for (const auto& player : state.players)
+            write_lobby_player(out, player);
+    }
+
+    void read_lobby_state(InputMemoryBitStream& in, LobbyStatePacket& state)
     {
         uint32_t playerCount = 0;
 
-        packet
-            >> state.your_player_id
-            >> state.fire_count
-            >> state.water_count
-            >> state.spectator_count
-            >> state.can_join_fire
-            >> state.can_join_water
-            >> state.can_spectate
-            >> state.match_started
-            >> playerCount;
+        in.Read(state.your_player_id);
+        in.Read(state.fire_count);
+        in.Read(state.water_count);
+        in.Read(state.spectator_count);
+        in.Read(state.can_join_fire);
+        in.Read(state.can_join_water);
+        in.Read(state.can_spectate);
+        in.Read(state.match_started);
+        in.Read(playerCount);
 
         state.players.clear();
+        state.players.reserve(playerCount);
 
         for (uint32_t i = 0; i < playerCount; ++i)
         {
-            LobbyPlayerState p;
-            packet >> p;
-            state.players.push_back(p);
+            LobbyPlayerState player;
+            read_lobby_player(in, player);
+            state.players.push_back(player);
         }
-
-        return packet;
     }
 
-    sf::Packet& operator<<(sf::Packet& packet, const PlayerNetState& p)
+    void write_player_net_state(OutputMemoryBitStream& out, const PlayerNetState& p)
     {
-        return packet
-            << p.id
-            << p.nickname
-            << p.pos.x << p.pos.y
-            << p.dir.x << p.dir.y
-            << p.team
-            << p.connected
-            << p.has_pending_team_change
-            << p.pending_team
-            << p.anim_state
-            << p.invulnerable
-            << p.invulnerable_time_seconds;
+        out.Write(p.id);
+        out.Write(p.nickname);
+        write_vec2(out, p.pos);
+        write_vec2(out, p.dir);
+        out.Write(p.team);
+        out.Write(p.connected);
+        out.Write(p.has_pending_team_change);
+        out.Write(p.pending_team);
+        out.Write(p.anim_state);
+        out.Write(p.invulnerable);
+        out.Write(p.invulnerable_time_seconds);
     }
 
-    sf::Packet& operator>>(sf::Packet& packet, PlayerNetState& p)
+    void read_player_net_state(InputMemoryBitStream& in, PlayerNetState& p)
     {
-        return packet
-            >> p.id
-            >> p.nickname
-            >> p.pos.x >> p.pos.y
-            >> p.dir.x >> p.dir.y
-            >> p.team
-            >> p.connected
-            >> p.has_pending_team_change
-            >> p.pending_team
-            >> p.anim_state
-            >> p.invulnerable
-            >> p.invulnerable_time_seconds;
+        in.Read(p.id);
+        in.Read(p.nickname);
+        read_vec2(in, p.pos);
+        read_vec2(in, p.dir);
+        in.Read(p.team);
+        in.Read(p.connected);
+        in.Read(p.has_pending_team_change);
+        in.Read(p.pending_team);
+        in.Read(p.anim_state);
+        in.Read(p.invulnerable);
+        in.Read(p.invulnerable_time_seconds);
     }
 
-    sf::Packet& operator<<(sf::Packet& packet, const SoundEventState& s)
+    void write_bullet_state(OutputMemoryBitStream& out, const BulletState& b)
     {
-        return packet << s.sound_id << s.source_player_id;
+        out.Write(b.bullet_id);
+        write_vec2(out, b.pos);
+        write_vec2(out, b.dir);
+        out.Write(b.owner);
+        out.Write(b.spell);
     }
 
-    sf::Packet& operator>>(sf::Packet& packet, SoundEventState& s)
+    void read_bullet_state(InputMemoryBitStream& in, BulletState& b)
     {
-        return packet >> s.sound_id >> s.source_player_id;
+        in.Read(b.bullet_id);
+        read_vec2(in, b.pos);
+        read_vec2(in, b.dir);
+        in.Read(b.owner);
+        in.Read(b.spell);
     }
 
-    sf::Packet& operator<<(sf::Packet& packet, const PlayerInput& input)
+    void write_sound_event(OutputMemoryBitStream& out, const SoundEventState& s)
     {
-        return packet << input.move.x << input.move.y << input.shootHeld << input.dashPressed;
+        out.Write(s.sound_id);
+        out.Write(s.source_player_id);
     }
 
-    sf::Packet& operator>>(sf::Packet& packet, PlayerInput& input)
+    void read_sound_event(InputMemoryBitStream& in, SoundEventState& s)
     {
-        return packet >> input.move.x >> input.move.y >> input.shootHeld >> input.dashPressed;
+        in.Read(s.sound_id);
+        in.Read(s.source_player_id);
     }
 
-    sf::Packet& operator<<(sf::Packet& packet, const BulletState& b)
+    void write_world_state(OutputMemoryBitStream& out, const WorldStatePacket& state)
     {
-        return packet
-            << b.bullet_id
-            << b.pos.x << b.pos.y
-            << b.dir.x << b.dir.y
-            << b.owner
-            << b.spell;
+        out.Write(state.your_player_id);
+
+        const uint32_t playerCount = static_cast<uint32_t>(state.players.size());
+        out.Write(playerCount);
+
+        out.Write(state.fire_count);
+        out.Write(state.water_count);
+        out.Write(state.spectator_count);
+        out.Write(state.fire_kills);
+        out.Write(state.water_kills);
+        out.Write(state.match_over);
+        out.Write(state.winner_team);
+
+        for (const auto& player : state.players)
+            write_player_net_state(out, player);
+
+        const uint32_t bulletCount = static_cast<uint32_t>(state.bullets.size());
+        out.Write(bulletCount);
+
+        for (const auto& bullet : state.bullets)
+            write_bullet_state(out, bullet);
+
+        const uint32_t soundCount = static_cast<uint32_t>(state.sound_events.size());
+        out.Write(soundCount);
+
+        for (const auto& sound : state.sound_events)
+            write_sound_event(out, sound);
     }
 
-    sf::Packet& operator>>(sf::Packet& packet, BulletState& b)
-    {
-        return packet
-            >> b.bullet_id
-            >> b.pos.x >> b.pos.y
-            >> b.dir.x >> b.dir.y
-            >> b.owner
-            >> b.spell;
-    }
-
-    sf::Packet& operator<<(sf::Packet& packet, const WorldStatePacket& state)
-    {
-        packet
-            << state.your_player_id
-            << static_cast<uint32_t>(state.players.size())
-            << state.fire_count
-            << state.water_count
-            << state.spectator_count
-            << state.fire_kills
-            << state.water_kills
-            << state.match_over
-            << state.winner_team;
-
-        for (const auto& p : state.players)
-            packet << p;
-
-        packet << static_cast<uint32_t>(state.bullets.size());
-
-        for (const auto& b : state.bullets)
-            packet << b;
-
-        packet << static_cast<uint32_t>(state.sound_events.size());
-
-        for (const auto& s : state.sound_events)
-            packet << s;
-
-        return packet;
-    }
-
-    sf::Packet& operator>>(sf::Packet& packet, WorldStatePacket& state)
+    void read_world_state(InputMemoryBitStream& in, WorldStatePacket& state)
     {
         uint32_t playerCount = 0;
-
-        packet
-            >> state.your_player_id
-            >> playerCount
-            >> state.fire_count
-            >> state.water_count
-            >> state.spectator_count
-            >> state.fire_kills
-            >> state.water_kills
-            >> state.match_over
-            >> state.winner_team;
-
-        state.players.clear();
-
-        for (uint32_t i = 0; i < playerCount; ++i)
-        {
-            PlayerNetState p;
-            packet >> p;
-            state.players.push_back(p);
-        }
-
         uint32_t bulletCount = 0;
-        packet >> bulletCount;
+        uint32_t soundCount = 0;
+
+        in.Read(state.your_player_id);
+        in.Read(playerCount);
+
+        in.Read(state.fire_count);
+        in.Read(state.water_count);
+        in.Read(state.spectator_count);
+        in.Read(state.fire_kills);
+        in.Read(state.water_kills);
+        in.Read(state.match_over);
+        in.Read(state.winner_team);
+
+        state.players.clear();
+        state.players.reserve(playerCount);
+
+        for (uint32_t i = 0; i < playerCount; ++i)
+        {
+            PlayerNetState player;
+            read_player_net_state(in, player);
+            state.players.push_back(player);
+        }
+
+        in.Read(bulletCount);
 
         state.bullets.clear();
+        state.bullets.reserve(bulletCount);
 
         for (uint32_t i = 0; i < bulletCount; ++i)
         {
-            BulletState b;
-            packet >> b;
-            state.bullets.push_back(b);
+            BulletState bullet;
+            read_bullet_state(in, bullet);
+            state.bullets.push_back(bullet);
         }
 
-        uint32_t soundCount = 0;
-        packet >> soundCount;
+        in.Read(soundCount);
 
         state.sound_events.clear();
+        state.sound_events.reserve(soundCount);
 
         for (uint32_t i = 0; i < soundCount; ++i)
         {
-            SoundEventState s;
-            packet >> s;
-            state.sound_events.push_back(s);
+            SoundEventState sound;
+            read_sound_event(in, sound);
+            state.sound_events.push_back(sound);
         }
-
-        return packet;
-    }
-
-    sf::Packet make_typed_packet(PacketType type)
-    {
-        sf::Packet packet;
-        packet << static_cast<int>(type);
-        return packet;
-    }
-
-    std::optional<PacketType> read_packet_type(sf::Packet& packet)
-    {
-        int typeValue = 0;
-
-        if (!(packet >> typeValue))
-            return std::nullopt;
-
-        return static_cast<PacketType>(typeValue);
     }
 }
+
 
 bool NetworkManager::start_host(unsigned short port)
 {
@@ -266,18 +295,28 @@ bool NetworkManager::start_host(unsigned short port)
     m_mode = Mode::Host;
     m_next_player_id = 1;
 
-    // UDP host binds to a known port so clients know where to send packets.
-    if (m_socket.bind(port) != sf::Socket::Status::Done)
+    m_socket = SocketUtil::CreateUDPSocket(INET);
+    if (!m_socket)
     {
         m_connected = false;
         m_mode = Mode::None;
         return false;
     }
 
-    m_socket.setBlocking(false);
+    SocketAddress bindAddress(INADDR_ANY, port);
+
+    if (m_socket->Bind(bindAddress) != NO_ERROR)
+    {
+        m_socket.reset();
+        m_connected = false;
+        m_mode = Mode::None;
+        return false;
+    }
+
+    m_socket->SetNonBlockingMode(true);
     m_connected = true;
 
-    std::cout << "UDP host started on port " << port << "\n";
+    std::cout << "RoboCat UDP host started on port " << port << "\n";
     return true;
 }
 
@@ -286,28 +325,48 @@ bool NetworkManager::start_client(const sf::IpAddress& ip, unsigned short port)
     disconnect();
 
     m_mode = Mode::Client;
-    m_server_ip = ip;
-    m_server_port = port;
 
-    // UDP has no real connection step.
-    // The client binds to any free local port and then sends packets to the host.
-    if (m_socket.bind(sf::Socket::AnyPort) != sf::Socket::Status::Done)
+    m_socket = SocketUtil::CreateUDPSocket(INET);
+    if (!m_socket)
     {
         m_connected = false;
         m_mode = Mode::None;
         return false;
     }
 
-    m_socket.setBlocking(false);
+    SocketAddress bindAddress(INADDR_ANY, 0);
+
+    if (m_socket->Bind(bindAddress) != NO_ERROR)
+    {
+        m_socket.reset();
+        m_connected = false;
+        m_mode = Mode::None;
+        return false;
+    }
+
+    m_socket->SetNonBlockingMode(true);
+
+    const std::string addressText = ip.toString() + ":" + std::to_string(port);
+    m_server_address = SocketAddressFactory::CreateIPv4FromString(addressText);
+
+    if (!m_server_address)
+    {
+        m_socket.reset();
+        m_connected = false;
+        m_mode = Mode::None;
+        return false;
+    }
+
     m_connected = true;
 
-    std::cout << "UDP client ready. Server is " << ip << ":" << port << "\n";
+    std::cout << "RoboCat UDP client ready. Server is " << addressText << "\n";
     return true;
 }
 
 void NetworkManager::disconnect()
 {
-    m_socket.unbind();
+    m_socket.reset();
+    m_server_address.reset();
 
     m_host_clients.clear();
     m_disconnected_player_ids.clear();
@@ -315,7 +374,6 @@ void NetworkManager::disconnect()
     m_connected = false;
     m_mode = Mode::None;
     m_next_player_id = 1;
-    m_server_port = 0;
 }
 
 bool NetworkManager::is_connected() const
@@ -328,11 +386,11 @@ NetworkManager::Mode NetworkManager::mode() const
     return m_mode;
 }
 
-NetworkManager::HostClient* NetworkManager::find_client(const sf::IpAddress& ip, unsigned short port)
+NetworkManager::HostClient* NetworkManager::find_client(const SocketAddress& address)
 {
     for (auto& client : m_host_clients)
     {
-        if (client.ip == ip && client.port == port)
+        if (client.address == address)
             return &client;
     }
 
@@ -350,36 +408,35 @@ NetworkManager::HostClient* NetworkManager::find_client_by_id(int player_id)
     return nullptr;
 }
 
+// Host-side packet pump.
+// Reads raw UDP packets using RoboCat UDPSocket::ReceiveFrom,
+// unpacks them with InputMemoryBitStream, and stores the newest message
+// for GameState / TeamSelectState to consume.
 void NetworkManager::poll_udp_packets()
 {
-    if (m_mode != Mode::Host)
+    if (m_mode != Mode::Host || !m_connected || !m_socket)
         return;
 
     while (true)
     {
-        sf::Packet packet;
-        std::optional<sf::IpAddress> sender;
-        unsigned short senderPort = 0;
+        char packetMemory[kMaxPacketSize];
+        SocketAddress senderAddress;
 
-        const auto status = m_socket.receive(packet, sender, senderPort);
+        const int bytesRead =
+            m_socket->ReceiveFrom(packetMemory, sizeof(packetMemory), senderAddress);
 
-        // No UDP packet waiting right now.
-        if (status != sf::Socket::Status::Done)
+        if (bytesRead == 0)
             break;
 
-        // Safety check: SFML 3 stores sender IP as optional.
-        if (!sender.has_value())
+        if (bytesRead < 0)
             continue;
 
-        const auto type = read_packet_type(packet);
+        InputMemoryBitStream in(packetMemory, static_cast<uint32_t>(bytesRead * 8));
+        const PacketType type = read_packet_type(in);
 
-        if (!type.has_value())
-            continue;
+        HostClient* client = find_client(senderAddress);
 
-        HostClient* client = find_client(*sender, senderPort);
-
-        // JoinInfo is the only packet allowed to create a new client.
-        if (*type == PacketType::JoinInfo)
+        if (type == PacketType::JoinInfo)
         {
             if (!client)
             {
@@ -390,21 +447,20 @@ void NetworkManager::poll_udp_packets()
                 }
 
                 HostClient newClient;
-                newClient.ip = *sender;
-                newClient.port = senderPort;
+                newClient.address = senderAddress;
                 newClient.player_id = m_next_player_id++;
                 newClient.last_heard = m_clock.getElapsedTime();
 
                 m_host_clients.push_back(newClient);
                 client = &m_host_clients.back();
 
-                std::cout << "UDP client joined from " << *sender
-                    << ":" << senderPort
+                std::cout << "RoboCat UDP client joined from "
+                    << senderAddress.ToString()
                     << " as id=" << client->player_id << "\n";
             }
 
             JoinInfoPacket joinInfo;
-            packet >> joinInfo;
+            read_join_info(in, joinInfo);
 
             joinInfo.player_id = client->player_id;
             client->pending_join_info = joinInfo;
@@ -412,29 +468,26 @@ void NetworkManager::poll_udp_packets()
         }
         else
         {
-            // Ignore non-join packets from unknown UDP endpoints.
             if (!client)
                 continue;
 
             client->last_heard = m_clock.getElapsedTime();
 
-            if (*type == PacketType::PlayerInput)
+            if (type == PacketType::PlayerInput)
             {
                 PlayerInput input;
-                packet >> input;
+                read_player_input(in, input);
                 client->pending_input = input;
             }
-            else if (*type == PacketType::TeamChangeRequest)
+            else if (type == PacketType::TeamChangeRequest)
             {
                 TeamChangeRequestPacket request;
-                packet >> request;
+                read_team_change_request(in, request);
                 client->pending_team_change_request = request;
             }
         }
     }
 
-    // UDP does not tell us when someone disconnects.
-    // So we treat a client as disconnected if we hear nothing for a while.
     const sf::Time now = m_clock.getElapsedTime();
 
     m_host_clients.erase(
@@ -449,7 +502,6 @@ void NetworkManager::poll_udp_packets()
                 if (timedOut)
                 {
                     m_disconnected_player_ids.push_back(client.player_id);
-
                     std::cout << "UDP client timed out: id="
                         << client.player_id << "\n";
                 }
@@ -460,31 +512,32 @@ void NetworkManager::poll_udp_packets()
     );
 }
 
-bool NetworkManager::send_packet_to_client(int player_id, sf::Packet& packet)
+bool NetworkManager::send_packet_to_server(const OutputMemoryBitStream& packet)
 {
-    if (m_mode != Mode::Host || !m_connected)
+    if (m_mode != Mode::Client || !m_connected || !m_socket || !m_server_address)
+        return false;
+
+    return m_socket->SendTo(
+        packet.GetBufferPtr(),
+        static_cast<int>(packet.GetByteLength()),
+        *m_server_address
+    ) > 0;
+}
+
+bool NetworkManager::send_packet_to_client(int player_id, const OutputMemoryBitStream& packet)
+{
+    if (m_mode != Mode::Host || !m_connected || !m_socket)
         return false;
 
     HostClient* client = find_client_by_id(player_id);
-
     if (!client)
         return false;
 
-    if (!client->ip.has_value())
-        return false;
-
-    return m_socket.send(packet, *client->ip, client->port) == sf::Socket::Status::Done;
-}
-
-bool NetworkManager::send_packet_to_server(sf::Packet& packet)
-{
-    if (m_mode != Mode::Client || !m_connected)
-        return false;
-
-    if (!m_server_ip.has_value())
-        return false;
-
-    return m_socket.send(packet, *m_server_ip, m_server_port) == sf::Socket::Status::Done;
+    return m_socket->SendTo(
+        packet.GetBufferPtr(),
+        static_cast<int>(packet.GetByteLength()),
+        client->address
+    ) > 0;
 }
 
 std::vector<int> NetworkManager::consume_disconnected_player_ids()
@@ -493,15 +546,17 @@ std::vector<int> NetworkManager::consume_disconnected_player_ids()
 
     std::vector<int> out = std::move(m_disconnected_player_ids);
     m_disconnected_player_ids.clear();
+
     return out;
 }
 
 bool NetworkManager::send_join_info(const JoinInfoPacket& joinInfo)
 {
-    sf::Packet packet = make_typed_packet(PacketType::JoinInfo);
-    packet << joinInfo;
+    OutputMemoryBitStream out;
+    write_packet_type(out, PacketType::JoinInfo);
+    write_join_info(out, joinInfo);
 
-    return send_packet_to_server(packet);
+    return send_packet_to_server(out);
 }
 
 std::optional<JoinInfoPacket> NetworkManager::receive_join_info()
@@ -526,10 +581,11 @@ std::optional<JoinInfoPacket> NetworkManager::receive_join_info()
 
 bool NetworkManager::send_input(const PlayerInput& input)
 {
-    sf::Packet packet = make_typed_packet(PacketType::PlayerInput);
-    packet << input;
+    OutputMemoryBitStream out;
+    write_packet_type(out, PacketType::PlayerInput);
+    write_player_input(out, input);
 
-    return send_packet_to_server(packet);
+    return send_packet_to_server(out);
 }
 
 std::optional<std::pair<int, PlayerInput>> NetworkManager::receive_input()
@@ -555,10 +611,11 @@ std::optional<std::pair<int, PlayerInput>> NetworkManager::receive_input()
 
 bool NetworkManager::send_team_change_request(const TeamChangeRequestPacket& request)
 {
-    sf::Packet packet = make_typed_packet(PacketType::TeamChangeRequest);
-    packet << request;
+    OutputMemoryBitStream out;
+    write_packet_type(out, PacketType::TeamChangeRequest);
+    write_team_change_request(out, request);
 
-    return send_packet_to_server(packet);
+    return send_packet_to_server(out);
 }
 
 std::optional<std::pair<int, TeamChangeRequestPacket>> NetworkManager::receive_team_change_request()
@@ -584,13 +641,11 @@ std::optional<std::pair<int, TeamChangeRequestPacket>> NetworkManager::receive_t
 
 bool NetworkManager::send_world_state_to_player(int player_id, const WorldStatePacket& state)
 {
-    sf::Packet packet = make_typed_packet(PacketType::WorldState);
-    packet << state;
+    OutputMemoryBitStream out;
+    write_packet_type(out, PacketType::WorldState);
+    write_world_state(out, state);
 
-    // Useful for CA3 screencast bandwidth discussion.
-    // std::cout << "[UDP] WorldState size: " << packet.getDataSize() << " bytes\n";
-
-    return send_packet_to_client(player_id, packet);
+    return send_packet_to_client(player_id, out);
 }
 
 bool NetworkManager::send_world_state_to_all(const WorldStatePacket& state)
@@ -602,11 +657,11 @@ bool NetworkManager::send_world_state_to_all(const WorldStatePacket& state)
 
     for (const auto& client : m_host_clients)
     {
-        sf::Packet packet = make_typed_packet(PacketType::WorldState);
-        packet << state;
+        OutputMemoryBitStream out;
+        write_packet_type(out, PacketType::WorldState);
+        write_world_state(out, state);
 
-        if (client.ip.has_value() &&
-            m_socket.send(packet, *client.ip, client.port) == sf::Socket::Status::Done)
+        if (send_packet_to_client(client.player_id, out))
             sentAny = true;
     }
 
@@ -615,45 +670,42 @@ bool NetworkManager::send_world_state_to_all(const WorldStatePacket& state)
 
 std::optional<WorldStatePacket> NetworkManager::receive_world_state()
 {
-    if (m_mode != Mode::Client || !m_connected)
+    if (m_mode != Mode::Client || !m_connected || !m_socket)
         return std::nullopt;
 
     while (true)
     {
-        sf::Packet packet;
-        std::optional<sf::IpAddress> sender;
-        unsigned short senderPort = 0;
+        char packetMemory[kMaxPacketSize];
+        SocketAddress senderAddress;
 
-        const auto status = m_socket.receive(packet, sender, senderPort);
+        const int bytesRead =
+            m_socket->ReceiveFrom(packetMemory, sizeof(packetMemory), senderAddress);
 
-        // No world state packet available this frame.
-        if (status != sf::Socket::Status::Done)
+        if (bytesRead == 0)
             return std::nullopt;
 
-        // Safety check for SFML 3 optional sender IP.
-        if (!sender.has_value())
+        if (bytesRead < 0)
             continue;
 
-        const auto type = read_packet_type(packet);
+        InputMemoryBitStream in(packetMemory, static_cast<uint32_t>(bytesRead * 8));
+        const PacketType type = read_packet_type(in);
 
-        if (!type.has_value())
-            continue;
-
-        if (*type != PacketType::WorldState)
+        if (type != PacketType::WorldState)
             continue;
 
         WorldStatePacket state;
-        packet >> state;
+        read_world_state(in, state);
         return state;
     }
 }
 
 bool NetworkManager::send_lobby_state_to_player(int player_id, const LobbyStatePacket& state)
 {
-    sf::Packet packet = make_typed_packet(PacketType::LobbyState);
-    packet << state;
+    OutputMemoryBitStream out;
+    write_packet_type(out, PacketType::LobbyState);
+    write_lobby_state(out, state);
 
-    return send_packet_to_client(player_id, packet);
+    return send_packet_to_client(player_id, out);
 }
 
 bool NetworkManager::send_lobby_state_to_all(const LobbyStatePacket& state)
@@ -665,11 +717,11 @@ bool NetworkManager::send_lobby_state_to_all(const LobbyStatePacket& state)
 
     for (const auto& client : m_host_clients)
     {
-        sf::Packet packet = make_typed_packet(PacketType::LobbyState);
-        packet << state;
+        OutputMemoryBitStream out;
+        write_packet_type(out, PacketType::LobbyState);
+        write_lobby_state(out, state);
 
-        if (client.ip.has_value() &&
-            m_socket.send(packet, *client.ip, client.port) == sf::Socket::Status::Done)
+        if (send_packet_to_client(client.player_id, out))
             sentAny = true;
     }
 
@@ -678,35 +730,31 @@ bool NetworkManager::send_lobby_state_to_all(const LobbyStatePacket& state)
 
 std::optional<LobbyStatePacket> NetworkManager::receive_lobby_state()
 {
-    if (m_mode != Mode::Client || !m_connected)
+    if (m_mode != Mode::Client || !m_connected || !m_socket)
         return std::nullopt;
 
     while (true)
     {
-        sf::Packet packet;
-        std::optional<sf::IpAddress> sender;
-        unsigned short senderPort = 0;
+        char packetMemory[kMaxPacketSize];
+        SocketAddress senderAddress;
 
-        const auto status = m_socket.receive(packet, sender, senderPort);
+        const int bytesRead =
+            m_socket->ReceiveFrom(packetMemory, sizeof(packetMemory), senderAddress);
 
-        // No world state packet available this frame.
-        if (status != sf::Socket::Status::Done)
+        if (bytesRead == 0)
             return std::nullopt;
 
-        // Safety check for SFML 3 optional sender IP.
-        if (!sender.has_value())
+        if (bytesRead < 0)
             continue;
 
-        const auto type = read_packet_type(packet);
+        InputMemoryBitStream in(packetMemory, static_cast<uint32_t>(bytesRead * 8));
+        const PacketType type = read_packet_type(in);
 
-        if (!type.has_value())
-            continue;
-
-        if (*type != PacketType::LobbyState)
+        if (type != PacketType::LobbyState)
             continue;
 
         LobbyStatePacket state;
-        packet >> state;
+        read_lobby_state(in, state);
         return state;
     }
 }

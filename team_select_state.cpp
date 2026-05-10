@@ -8,7 +8,6 @@
 #include "utility.hpp"
 #include "button.hpp"
 #include "stateid.hpp"
-#include <SFML/Network/IpAddress.hpp>
 #include <iostream>
 #include "profile_data.hpp"
 #include "player_input.hpp"

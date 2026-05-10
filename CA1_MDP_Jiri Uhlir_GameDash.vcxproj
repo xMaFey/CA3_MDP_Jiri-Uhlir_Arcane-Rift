@@ -118,7 +118,7 @@
 
 sfml-window-d.lib;
 
-sfml-system-d.lib;sfml-audio-d.lib;sfml-network-d.lib;%(AdditionalDependencies)</AdditionalDependencies>
+sfml-system-d.lib;sfml-audio-d.lib;sfml-network-d.lib;%(AdditionalDependencies);ws2_32.lib</AdditionalDependencies>
     </Link>
     <PostBuildEvent>
       <Command>echo ===== POST BUILD START =====
@@ -146,7 +146,7 @@ echo ===== POST BUILD END =====</Command>
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <AdditionalLibraryDirectories>$(SolutionDir)external\SFML-3.0.1\lib</AdditionalLibraryDirectories>
-      <AdditionalDependencies>sfml-graphics.lib;sfml-window.lib;sfml-system.lib;sfml-audio.lib;sfml-network.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>sfml-graphics.lib;sfml-window.lib;sfml-system.lib;sfml-audio.lib;sfml-network.lib;%(AdditionalDependencies);ws2_32.lib</AdditionalDependencies>
     </Link>
     <PostBuildEvent>
       <Command>echo ===== POST BUILD START =====
@@ -173,35 +173,46 @@ echo ===== POST BUILD END =====</Command>
     <ClCompile Include="game_state.cpp" />
     <ClCompile Include="host_session.cpp" />
     <ClCompile Include="label.cpp" />
+    <ClCompile Include="memory_bit_stream.cpp" />
     <ClCompile Include="menu_state.cpp" />
     <ClCompile Include="music_player.cpp" />
     <ClCompile Include="network_manager.cpp" />
     <ClCompile Include="player_entity.cpp" />
     <ClCompile Include="player_input.cpp" />
     <ClCompile Include="profile_data.cpp" />
+    <ClCompile Include="robo_math.cpp" />
     <ClCompile Include="settings_state.cpp" />
+    <ClCompile Include="socket_address.cpp" />
+    <ClCompile Include="socket_address_factory.cpp" />
+    <ClCompile Include="socket_util.cpp" />
+    <ClCompile Include="string_utils.cpp" />
     <ClCompile Include="sound_id.cpp" />
     <ClCompile Include="sound_player.cpp" />
     <ClCompile Include="state.cpp" />
     <ClCompile Include="statestack.cpp" />
     <ClCompile Include="team_select_state.cpp" />
+    <ClCompile Include="timing.cpp" />
     <ClCompile Include="title_state.cpp" />
+    <ClCompile Include="udp_socket.cpp" />
     <ClCompile Include="utility.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="application.hpp" />
     <ClInclude Include="bullet.hpp" />
     <ClInclude Include="button.hpp" />
+    <ClInclude Include="byte_swap.hpp" />
     <ClInclude Include="client_session.hpp" />
     <ClInclude Include="component.hpp" />
     <ClInclude Include="constants.hpp" />
     <ClInclude Include="container.hpp" />
+    <ClInclude Include="core_net_pch.hpp" />
     <ClInclude Include="fontID.hpp" />
     <ClInclude Include="game_over_state.hpp" />
     <ClInclude Include="game_settings.hpp" />
     <ClInclude Include="game_state.hpp" />
     <ClInclude Include="host_session.hpp" />
     <ClInclude Include="label.hpp" />
+    <ClInclude Include="memory_bit_stream.hpp" />
     <ClInclude Include="menu_state.hpp" />
     <ClInclude Include="music_player.hpp" />
     <ClInclude Include="network_manager.hpp" />
@@ -211,7 +222,12 @@ echo ===== POST BUILD END =====</Command>
     <ClInclude Include="profile_data.hpp" />
     <ClInclude Include="resource_holder.hpp" />
     <ClInclude Include="resource_identifiers.hpp" />
+    <ClInclude Include="robo_math.hpp" />
     <ClInclude Include="settings_state.hpp" />
+    <ClInclude Include="socket_address.hpp" />
+    <ClInclude Include="socket_address_factory.hpp" />
+    <ClInclude Include="string_utils.hpp" />
+    <ClInclude Include="socket_util.hpp" />
     <ClInclude Include="sound_id.hpp" />
     <ClInclude Include="sound_player.hpp" />
     <ClInclude Include="stack_actions.hpp" />
@@ -220,8 +236,11 @@ echo ===== POST BUILD END =====</Command>
     <ClInclude Include="statestack.hpp" />
     <ClInclude Include="team_select_state.hpp" />
     <ClInclude Include="texture_id.hpp" />
+    <ClInclude Include="timing.hpp" />
     <ClInclude Include="title_state.hpp" />
+    <ClInclude Include="udp_socket.hpp" />
     <ClInclude Include="utility.hpp" />
+    <ClInclude Include="weighted_timed_moving_average.hpp" />
   </ItemGroup>
   <ItemGroup>
     <None Include="CppProperties.json" />

@@ -11,7 +11,6 @@
 #include <random>
 #include <iostream>
 #include <cmath>
-#include <SFML/Network/IpAddress.hpp>
 #include "game_settings.hpp"
 #include "sound_id.hpp"
 #include "utility.hpp"

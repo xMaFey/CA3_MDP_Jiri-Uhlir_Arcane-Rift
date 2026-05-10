@@ -111,6 +111,30 @@
     <ClCompile Include="profile_data.cpp">
       <Filter>Core\Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="memory_bit_stream.cpp">
+      <Filter>Core\Network Files</Filter>
+    </ClCompile>
+    <ClCompile Include="string_utils.cpp">
+      <Filter>Core\Network Files</Filter>
+    </ClCompile>
+    <ClCompile Include="socket_util.cpp">
+      <Filter>Core\Network Files</Filter>
+    </ClCompile>
+    <ClCompile Include="socket_address_factory.cpp">
+      <Filter>Core\Network Files</Filter>
+    </ClCompile>
+    <ClCompile Include="socket_address.cpp">
+      <Filter>Core\Network Files</Filter>
+    </ClCompile>
+    <ClCompile Include="udp_socket.cpp">
+      <Filter>Core\Network Files</Filter>
+    </ClCompile>
+    <ClCompile Include="timing.cpp">
+      <Filter>Core\Network Files</Filter>
+    </ClCompile>
+    <ClCompile Include="robo_math.cpp">
+      <Filter>Core\Network Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="title_state.hpp">
@@ -211,6 +235,39 @@
     </ClInclude>
     <ClInclude Include="profile_data.hpp">
       <Filter>Core\Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="byte_swap.hpp">
+      <Filter>Core\Network Files</Filter>
+    </ClInclude>
+    <ClInclude Include="memory_bit_stream.hpp">
+      <Filter>Core\Network Files</Filter>
+    </ClInclude>
+    <ClInclude Include="socket_address.hpp">
+      <Filter>Core\Network Files</Filter>
+    </ClInclude>
+    <ClInclude Include="socket_address_factory.hpp">
+      <Filter>Core\Network Files</Filter>
+    </ClInclude>
+    <ClInclude Include="string_utils.hpp">
+      <Filter>Core\Network Files</Filter>
+    </ClInclude>
+    <ClInclude Include="socket_util.hpp">
+      <Filter>Core\Network Files</Filter>
+    </ClInclude>
+    <ClInclude Include="timing.hpp">
+      <Filter>Core\Network Files</Filter>
+    </ClInclude>
+    <ClInclude Include="udp_socket.hpp">
+      <Filter>Core\Network Files</Filter>
+    </ClInclude>
+    <ClInclude Include="weighted_timed_moving_average.hpp">
+      <Filter>Core\Network Files</Filter>
+    </ClInclude>
+    <ClInclude Include="robo_math.hpp">
+      <Filter>Core\Network Files</Filter>
+    </ClInclude>
+    <ClInclude Include="core_net_pch.hpp">
+      <Filter>Core\Network Files</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
