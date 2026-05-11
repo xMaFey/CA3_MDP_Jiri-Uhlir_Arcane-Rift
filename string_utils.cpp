@@ -58,17 +58,13 @@ string StringUtils::Sprintf(const char* inFormat, ...)
 
 void StringUtils::Log(const char* inFormat, ...)
 {
-	//not thread safe...
-	static char temp[4096];
+	char tempBuffer[4096];
 
 	va_list args;
 	va_start(args, inFormat);
+	vsnprintf(tempBuffer, sizeof(tempBuffer), inFormat, args);
+	va_end(args);
 
-#if _WIN32
-	_vsnprintf_s(temp, 4096, 4096, inFormat, args);
-#else
-	vsnprintf(temp, 4096, inFormat, args);
-#endif
-	OutputDebugString(temp);
-	OutputDebugString("\n");
+	OutputDebugStringA(tempBuffer);
+	OutputDebugStringA("\n");
 }

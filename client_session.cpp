@@ -10,7 +10,7 @@ ClientSession::ClientSession(NetworkManager& network)
 {
 }
 
-bool ClientSession::connect(const sf::IpAddress& ip, unsigned short port)
+bool ClientSession::connect(const std::string& ip, unsigned short port)
 {
     if (!m_network)
         return false;

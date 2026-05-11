@@ -44,6 +44,7 @@ private:
     sf::Text m_fire_text;
     sf::Text m_water_text;
     sf::Text m_hint;
+    sf::Time m_join_resend_timer = sf::Time::Zero;
 
     gui::Container m_gui;
 
@@ -67,6 +68,10 @@ private:
 
     sf::RectangleShape m_name_box;
     bool m_name_editing = false;
+
+    sf::RectangleShape m_main_panel;
+    sf::RectangleShape m_profile_panel;
+    sf::RectangleShape m_players_panel;
 
     gui::Button::Ptr m_join_fire_button;
     gui::Button::Ptr m_join_water_button;

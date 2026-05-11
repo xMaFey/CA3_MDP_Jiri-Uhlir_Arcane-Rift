@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <string>
+#include <type_traits>
 
 class GameObject;
 
@@ -35,12 +36,12 @@ public:
 
 	~OutputMemoryBitStream() { std::free(mBuffer); }
 
-	void		WriteBits(uint8_t inData, uint32_t inBitCount);
-	void		WriteBits(const void* inData, uint32_t inBitCount);
+	void WriteBits(uint8_t inData, uint32_t inBitCount);
+	void WriteBits(const void* inData, uint32_t inBitCount);
 
-	const 	char* GetBufferPtr()		const { return mBuffer; }
-	uint32_t		GetBitLength()		const { return mBitHead; }
-	uint32_t		GetByteLength()		const { return (mBitHead + 7) >> 3; }
+	const char* GetBufferPtr() const { return mBuffer; }
+	uint32_t GetBitLength() const { return mBitHead; }
+	uint32_t GetByteLength() const { return (mBitHead + 7) >> 3; }
 
 	void WriteBytes(const void* inData, uint32_t inByteCount) { WriteBits(inData, inByteCount << 3); }
 
@@ -64,10 +65,7 @@ public:
 		WriteBits(&inData, inBitCount);
 	}
 
-	void 		Write(bool inData) { WriteBits(&inData, 1); }
-
-	void		Write(const Vector3& inVector);
-	void		Write(const Quaternion& inQuat);
+	void Write(bool inData) { WriteBits(&inData, 1); }
 
 	void Write(const std::string& inString)
 	{
@@ -80,11 +78,11 @@ public:
 	}
 
 private:
-	void		ReallocBuffer(uint32_t inNewBitCapacity);
+	void ReallocBuffer(uint32_t inNewBitCapacity);
 
 	char* mBuffer;
-	uint32_t	mBitHead;
-	uint32_t	mBitCapacity;
+	uint32_t mBitHead;
+	uint32_t mBitCapacity;
 };
 
 class InputMemoryBitStream
@@ -112,13 +110,13 @@ public:
 
 	~InputMemoryBitStream() { if (mIsBufferOwner) { free(mBuffer); }; }
 
-	const 	char* GetBufferPtr()		const { return mBuffer; }
-	uint32_t	GetRemainingBitCount() 	const { return mBitCapacity - mBitHead; }
+	const char* GetBufferPtr() const { return mBuffer; }
+	uint32_t GetRemainingBitCount() const { return mBitCapacity - mBitHead; }
 
-	void		ReadBits(uint8_t& outData, uint32_t inBitCount);
-	void		ReadBits(void* outData, uint32_t inBitCount);
+	void ReadBits(uint8_t& outData, uint32_t inBitCount);
+	void ReadBits(void* outData, uint32_t inBitCount);
 
-	void		ReadBytes(void* outData, uint32_t inByteCount) { ReadBits(outData, inByteCount << 3); }
+	void ReadBytes(void* outData, uint32_t inByteCount) { ReadBits(outData, inByteCount << 3); }
 
 	template< typename T >
 	void Read(T& inData, uint32_t inBitCount = sizeof(T) * 8)
@@ -129,19 +127,17 @@ public:
 		ReadBits(&inData, inBitCount);
 	}
 
-	void		Read(uint32_t& outData, uint32_t inBitCount = 32) { ReadBits(&outData, inBitCount); }
-	void		Read(int& outData, uint32_t inBitCount = 32) { ReadBits(&outData, inBitCount); }
-	void		Read(float& outData) { ReadBits(&outData, 32); }
+	void Read(uint32_t& outData, uint32_t inBitCount = 32) { ReadBits(&outData, inBitCount); }
+	void Read(int& outData, uint32_t inBitCount = 32) { ReadBits(&outData, inBitCount); }
+	void Read(float& outData) { ReadBits(&outData, 32); }
 
-	void		Read(uint16_t& outData, uint32_t inBitCount = 16) { ReadBits(&outData, inBitCount); }
-	void		Read(int16_t& outData, uint32_t inBitCount = 16) { ReadBits(&outData, inBitCount); }
+	void Read(uint16_t& outData, uint32_t inBitCount = 16) { ReadBits(&outData, inBitCount); }
+	void Read(int16_t& outData, uint32_t inBitCount = 16) { ReadBits(&outData, inBitCount); }
 
-	void		Read(uint8_t& outData, uint32_t inBitCount = 8) { ReadBits(&outData, inBitCount); }
-	void		Read(bool& outData) { ReadBits(&outData, 1); }
+	void Read(uint8_t& outData, uint32_t inBitCount = 8) { ReadBits(&outData, inBitCount); }
+	void Read(bool& outData) { ReadBits(&outData, 1); }
 
-	void		Read(Quaternion& outQuat);
-
-	void		ResetToCapacity(uint32_t inByteCapacity) { mBitCapacity = inByteCapacity << 3; mBitHead = 0; }
+	void ResetToCapacity(uint32_t inByteCapacity) { mBitCapacity = inByteCapacity << 3; mBitHead = 0; }
 
 
 	void Read(std::string& inString)
@@ -155,13 +151,11 @@ public:
 		}
 	}
 
-	void Read(Vector3& inVector);
-
 private:
 	char* mBuffer;
-	uint32_t	mBitHead;
-	uint32_t	mBitCapacity;
-	bool		mIsBufferOwner;
+	uint32_t mBitHead;
+	uint32_t mBitCapacity;
+	bool mIsBufferOwner;
 
 };
 

@@ -6,7 +6,7 @@
 #pragma once
 
 #include "network_manager.hpp"
-#include <SFML/Network/IpAddress.hpp>
+#include <string>
 #include "network_packets.hpp"
 #include <optional>
 
@@ -15,7 +15,7 @@ class ClientSession
 public:
     explicit ClientSession(NetworkManager& network);
 
-    bool connect(const sf::IpAddress& ip, unsigned short port);
+    bool connect(const std::string& ip, unsigned short port);
     bool is_connected() const;
 
     // send chosen nickname and team once after connect

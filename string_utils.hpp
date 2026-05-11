@@ -15,4 +15,6 @@ namespace StringUtils
 	void	Log(const char* inFormat, ...);
 }
 
-#define LOG( ... ) StringUtils::Log( __VA_ARGS__ );
+#ifndef LOG
+#define LOG(...) StringUtils::Log(__VA_ARGS__)
+#endif

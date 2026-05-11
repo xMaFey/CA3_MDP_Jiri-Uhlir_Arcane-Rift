@@ -320,7 +320,7 @@ bool NetworkManager::start_host(unsigned short port)
     return true;
 }
 
-bool NetworkManager::start_client(const sf::IpAddress& ip, unsigned short port)
+bool NetworkManager::start_client(const std::string& ip, unsigned short port)
 {
     disconnect();
 
@@ -346,7 +346,7 @@ bool NetworkManager::start_client(const sf::IpAddress& ip, unsigned short port)
 
     m_socket->SetNonBlockingMode(true);
 
-    const std::string addressText = ip.toString() + ":" + std::to_string(port);
+    const std::string addressText = ip + ":" + std::to_string(port);
     m_server_address = SocketAddressFactory::CreateIPv4FromString(addressText);
 
     if (!m_server_address)
@@ -429,6 +429,9 @@ void NetworkManager::poll_udp_packets()
             break;
 
         if (bytesRead < 0)
+            continue;
+
+        if (bytesRead < static_cast<int>(sizeof(uint32_t)))
             continue;
 
         InputMemoryBitStream in(packetMemory, static_cast<uint32_t>(bytesRead * 8));
@@ -517,6 +520,13 @@ bool NetworkManager::send_packet_to_server(const OutputMemoryBitStream& packet)
     if (m_mode != Mode::Client || !m_connected || !m_socket || !m_server_address)
         return false;
 
+    if (packet.GetByteLength() > kMaxPacketSize)
+    {
+        std::cout << "Packet too large for UDP send: "
+            << packet.GetByteLength() << " bytes\n";
+        return false;
+    }
+
     return m_socket->SendTo(
         packet.GetBufferPtr(),
         static_cast<int>(packet.GetByteLength()),
@@ -532,6 +542,13 @@ bool NetworkManager::send_packet_to_client(int player_id, const OutputMemoryBitS
     HostClient* client = find_client_by_id(player_id);
     if (!client)
         return false;
+
+    if (packet.GetByteLength() > kMaxPacketSize)
+    {
+        std::cout << "Packet too large for UDP send: "
+            << packet.GetByteLength() << " bytes\n";
+        return false;
+    }
 
     return m_socket->SendTo(
         packet.GetBufferPtr(),
@@ -687,6 +704,9 @@ std::optional<WorldStatePacket> NetworkManager::receive_world_state()
         if (bytesRead < 0)
             continue;
 
+        if (bytesRead < static_cast<int>(sizeof(uint32_t)))
+            continue;
+
         InputMemoryBitStream in(packetMemory, static_cast<uint32_t>(bytesRead * 8));
         const PacketType type = read_packet_type(in);
 
@@ -745,6 +765,9 @@ std::optional<LobbyStatePacket> NetworkManager::receive_lobby_state()
             return std::nullopt;
 
         if (bytesRead < 0)
+            continue;
+
+        if (bytesRead < static_cast<int>(sizeof(uint32_t)))
             continue;
 
         InputMemoryBitStream in(packetMemory, static_cast<uint32_t>(bytesRead * 8));

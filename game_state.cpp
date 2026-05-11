@@ -143,11 +143,7 @@ GameState::GameState(StateStack& stack, Context context)
 
             if (network.mode() != NetworkManager::Mode::Client || !network.is_connected())
             {
-                const auto ip = sf::IpAddress::resolve(settings.server_ip);
-
-                bool ok = false;
-                if (ip.has_value())
-                    ok = m_client_session->connect(*ip, settings.server_port);
+                const bool ok = m_client_session->connect(settings.server_ip, settings.server_port);
 
                 std::cout << (ok ? "Client connected\n" : "Client failed to connect\n");
                 ready = ok;
@@ -1574,8 +1570,27 @@ bool GameState::Update(sf::Time dt)
                     localSlot->connected = netPlayer.connected;
 
                     // Host is authoritative for remote positions.
-                    localSlot->entity.set_position(netPlayer.pos);
-                    localSlot->entity.set_facing_dir(netPlayer.dir);
+                    const bool isLocalControlledPlayer =
+                        (m_local_player_id >= 0 && netPlayer.id == m_local_player_id);
+
+                    if (!isLocalControlledPlayer)
+                    {
+                        // Remote players are fully driven by host snapshots.
+                        localSlot->entity.set_position(netPlayer.pos);
+                        localSlot->entity.set_facing_dir(netPlayer.dir);
+                    }
+                    else
+                    {
+                        // Local player is predicted locally.
+                        // Only snap if the error becomes very large.
+                        const sf::Vector2f diff = localSlot->entity.position() - netPlayer.pos;
+                        const float errorSq = diff.x * diff.x + diff.y * diff.y;
+
+                        if (errorSq > 2500.f) // 50 pixels squared
+                            localSlot->entity.set_position(netPlayer.pos);
+
+                        localSlot->entity.set_facing_dir(netPlayer.dir);
+                    }
 
                     // Store replicated animation info from the host.
                     localSlot->replicated_anim_state = netPlayer.anim_state;

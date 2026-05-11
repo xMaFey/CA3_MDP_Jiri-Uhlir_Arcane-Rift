@@ -45,6 +45,18 @@ TeamSelectState::TeamSelectState(StateStack& stack, Context context)
 
     m_name_text.setCharacterSize(28);
 
+    m_main_panel.setFillColor(sf::Color(10, 10, 18, 185));
+    m_main_panel.setOutlineThickness(2.f);
+    m_main_panel.setOutlineColor(sf::Color(255, 255, 255, 55));
+
+    m_profile_panel.setFillColor(sf::Color(10, 10, 18, 210));
+    m_profile_panel.setOutlineThickness(2.f);
+    m_profile_panel.setOutlineColor(sf::Color(255, 255, 255, 90));
+
+    m_players_panel.setFillColor(sf::Color(10, 10, 18, 210));
+    m_players_panel.setOutlineThickness(2.f);
+    m_players_panel.setOutlineColor(sf::Color(255, 255, 255, 90));
+
     // Click this box to start typing nickname.
     m_name_box.setSize({ 320.f, 42.f });
     m_name_box.setFillColor(sf::Color(30, 30, 40, 220));
@@ -234,10 +246,7 @@ TeamSelectState::TeamSelectState(StateStack& stack, Context context)
         {
             m_client_session = std::make_unique<ClientSession>(network);
 
-            const auto ip = sf::IpAddress::resolve(settings.server_ip);
-            bool ok = false;
-            if (ip.has_value())
-                ok = m_client_session->connect(*ip, settings.server_port);
+            const bool ok = m_client_session->connect(settings.server_ip, settings.server_port);
 
             m_network_started = ok;
         }
@@ -376,8 +385,18 @@ void TeamSelectState::refresh_text()
     m_water_count = settings.latest_water_count;
     m_team_limit = settings.team_limit;
 
-    const std::string shownName = m_nickname.empty() ? "Player" : m_nickname;
-    m_name_text.setString("Nickname: " + shownName + (m_name_editing ? "_" : ""));
+    const bool nameEmpty = m_nickname.empty();
+
+    if (nameEmpty)
+    {
+        m_name_text.setString(m_name_editing ? "Type nickname..." : "Click to enter nickname");
+        m_name_text.setFillColor(sf::Color(180, 180, 180));
+    }
+    else
+    {
+        m_name_text.setString(m_nickname + (m_name_editing ? "_" : ""));
+        m_name_text.setFillColor(sf::Color::White);
+    }
 
     // Keep nickname text aligned nicely inside the input box.
     const sf::FloatRect textBounds = m_name_text.getLocalBounds();
@@ -418,8 +437,12 @@ void TeamSelectState::Draw(sf::RenderTarget& target)
 
     sf::RectangleShape overlay;
     overlay.setSize(target.getView().getSize());
-    overlay.setFillColor(sf::Color(0, 0, 0, 140));
+    overlay.setFillColor(sf::Color(0, 0, 0, 195));
     target.draw(overlay);
+
+    target.draw(m_main_panel);
+    target.draw(m_profile_panel);
+    target.draw(m_players_panel);
 
     target.draw(m_title);
     target.draw(m_mode_text);
@@ -433,7 +456,7 @@ void TeamSelectState::Draw(sf::RenderTarget& target)
     target.draw(m_gui);
 }
 
-bool TeamSelectState::Update(sf::Time)
+bool TeamSelectState::Update(sf::Time dt)
 {
     auto& settings = *GetContext().settings;
 
@@ -663,7 +686,11 @@ bool TeamSelectState::Update(sf::Time)
             m_client_session->send_local_input(heartbeatInput);
         }
 
-        if (m_network_started && !m_join_sent)
+        m_join_resend_timer += dt;
+
+        if (m_network_started &&
+            (m_local_player_id < 0 || !m_join_sent) &&
+            m_join_resend_timer >= sf::seconds(0.5f))
         {
             JoinInfoPacket joinInfo;
             joinInfo.player_id = -1;
@@ -678,6 +705,8 @@ bool TeamSelectState::Update(sf::Time)
 
             m_client_session->send_join_info(joinInfo);
             m_join_sent = true;
+
+            m_join_resend_timer = sf::Time::Zero;
         }
 
         while (true)
@@ -848,29 +877,52 @@ void TeamSelectState::rebuild_layout(sf::Vector2u new_size)
 {
     const sf::Vector2f view_size(static_cast<float>(new_size.x), static_cast<float>(new_size.y));
 
-    m_title.setPosition({ view_size.x * 0.5f, view_size.y * 0.12f });
-    m_mode_text.setPosition({ view_size.x * 0.5f, view_size.y * 0.18f });
-    m_fire_text.setPosition({ view_size.x * 0.28f, view_size.y * 0.36f });
-    m_water_text.setPosition({ view_size.x * 0.28f, view_size.y * 0.44f });
-    m_players_text.setPosition({ view_size.x * 0.28f, view_size.y * 0.52f });
-    m_hint.setPosition({ view_size.x * 0.5f, view_size.y * 0.62f });
-    m_name_box.setPosition({ view_size.x * 0.26f, view_size.y * 0.23f });
-    m_profile_text.setPosition({ view_size.x * 0.60f, view_size.y * 0.25f });
+    m_title.setPosition({ view_size.x * 0.5f, view_size.y * 0.10f });
+    m_mode_text.setPosition({ view_size.x * 0.5f, view_size.y * 0.16f });
 
-    if (m_join_fire_button)
-        m_join_fire_button->setPosition({ view_size.x * 0.5f - 100.f, view_size.y * 0.72f });
+    // Main center panel
+    m_main_panel.setSize({ view_size.x * 0.44f, view_size.y * 0.62f });
+    m_main_panel.setPosition({ view_size.x * 0.27f, view_size.y * 0.20f });
 
-    if (m_join_water_button)
-        m_join_water_button->setPosition({ view_size.x * 0.5f - 100.f, view_size.y * 0.80f });
+    // Nickname box
+    m_name_box.setSize({ 330.f, 44.f });
+    m_name_box.setPosition({ view_size.x * 0.36f, view_size.y * 0.24f });
 
-    if (m_spectate_button)
-        m_spectate_button->setPosition({ view_size.x * 0.72f, view_size.y * 0.72f });
+    // Team counts
+    m_fire_text.setPosition({ view_size.x * 0.34f, view_size.y * 0.34f });
+    m_water_text.setPosition({ view_size.x * 0.34f, view_size.y * 0.42f });
+
+    // Players box inside the main panel
+    m_players_panel.setSize({ view_size.x * 0.34f, view_size.y * 0.29f });
+    m_players_panel.setPosition({ view_size.x * 0.33f, view_size.y * 0.48f });
+    m_players_text.setPosition({ view_size.x * 0.35f, view_size.y * 0.49f });
+
+    // Profile box moved further right so it does not overlap
+    m_profile_panel.setSize({ view_size.x * 0.20f, view_size.y * 0.20f });
+    m_profile_panel.setPosition({ view_size.x * 0.73f, view_size.y * 0.22f });
+    m_profile_text.setPosition({ view_size.x * 0.745f, view_size.y * 0.245f });
+
+    m_hint.setPosition({ view_size.x * 0.5f, view_size.y * 0.305f });
+
+    // Buttons on the right side under the saved profile panel.
+    const float rightPanelX = view_size.x * 0.745f;
+    const float buttonStartY = view_size.y * 0.48f;
+    const float buttonGap = view_size.y * 0.075f;
 
     if (m_start_button)
-        m_start_button->setPosition({ view_size.x * 0.72f, view_size.y * 0.64f });
+        m_start_button->setPosition({ rightPanelX, buttonStartY });
+
+    if (m_join_fire_button)
+        m_join_fire_button->setPosition({ rightPanelX, buttonStartY + buttonGap });
+
+    if (m_join_water_button)
+        m_join_water_button->setPosition({ rightPanelX, buttonStartY + buttonGap * 2.f });
+
+    if (m_spectate_button)
+        m_spectate_button->setPosition({ rightPanelX, buttonStartY + buttonGap * 3.f });
 
     if (m_back_button)
-        m_back_button->setPosition({ view_size.x * 0.72f, view_size.y * 0.80f });
+        m_back_button->setPosition({ rightPanelX, buttonStartY + buttonGap * 4.f });
 }
 
 void TeamSelectState::OnResize(sf::Vector2u new_size)

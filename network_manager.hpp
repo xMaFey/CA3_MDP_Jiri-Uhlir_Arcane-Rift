@@ -5,10 +5,11 @@
 
 #pragma once
 
-#include <SFML/Network/IpAddress.hpp> // only used to accept the IP from existing menu/client code
+#include <string>
 #include <SFML/System/Clock.hpp>
 #include <optional>
 #include <vector>
+#include <SFML/System.hpp>
 
 #include "player_input.hpp"
 #include "network_packets.hpp"
@@ -31,7 +32,7 @@ public:
 
 public:
     bool start_host(unsigned short port);
-    bool start_client(const sf::IpAddress& ip, unsigned short port);
+    bool start_client(const std::string& ip, unsigned short port);
     void disconnect();
 
     bool is_connected() const;
