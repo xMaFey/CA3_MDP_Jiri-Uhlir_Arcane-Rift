@@ -1,5 +1,5 @@
 nickname=Jiri
-matches_played=19
+matches_played=22
 total_kills=21
 total_deaths=21
 best_match_kills=5
